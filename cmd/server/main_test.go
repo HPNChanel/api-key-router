@@ -21,12 +21,12 @@ import (
 // Constants for test API keys (from test_api_key.txt)
 const (
 	// Real API key - will succeed in tests
-	REAL_API_KEY = "AIzaSyCyx2zQ-ak_48Cb_j1vZYOBS_UGA_LO_R4"
+	REAL_API_KEY = "YOUR_REAL_API_KEY"
 	// Fake API key - will fail in tests
-	FAKE_API_KEY = "AIzaSyCyxxeuQ-ak_48Cb_j1vZYOBS_UGA_LO_R4"
+	FAKE_API_KEY = "YOUR_FAKE_API_KEY"
 	// Additional test keys for rotation
-	TEST_KEY_1 = "KEY_1_SHOULD_FAIL_429"
-	TEST_KEY_2 = "KEY_2_SHOULD_FAIL_500"
+	TEST_KEY_1 = "YOUR_TEST_KEY_1"
+	TEST_KEY_2 = "YOUR_TEST_KEY_2"
 )
 
 // ============================================================================

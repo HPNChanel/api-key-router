@@ -14,13 +14,17 @@ const (
 	defaultConfigName = "config"
 	defaultConfigType = "yaml"
 	envPrefix         = "HPN_ROUTER"
+
+	// EnvAPIKeys is the primary environment variable for API keys (comma-separated).
+	// This takes PRIORITY over file configuration for Zero-Trust security.
+	EnvAPIKeys = "HPN_API_KEYS"
 )
 
-// loadConfig loads the configuration from files and environment variables.
-// Priority order (highest to lowest):
-// 1. Environment variables (prefixed with HPN_ROUTER_)
-// 2. config.yaml in the current directory
-// 3. config.yaml in the configs/ directory
+// loadConfig loads the configuration from environment variables and files.
+// Priority order (ZERO-TRUST - highest to lowest):
+// 1. HPN_API_KEYS env var (comma-separated) - PRIMARY SOURCE
+// 2. Environment variables (prefixed with HPN_ROUTER_)
+// 3. config.yaml - FALLBACK for local development ONLY
 // 4. Default values
 func loadConfig(configPath string) (*Configuration, error) {
 	v := viper.New()
@@ -47,19 +51,19 @@ func loadConfig(configPath string) (*Configuration, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	v.AutomaticEnv()
 
-	// Read configuration file
+	// Read configuration file (fallback only)
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			// Config file not found; use defaults and environment variables only
-			// This is acceptable if environment variables are set
-			fmt.Fprintf(os.Stderr, "Warning: Config file not found, using defaults and environment variables\n")
+			// Config file not found is OK - we prefer env vars anyway
+			fmt.Fprintf(os.Stderr, "[SECURITY] Config file not found, using environment variables only (recommended)\n")
 		} else {
-			// Config file was found but another error was produced
 			return nil, &ConfigError{
 				Op:  "read",
 				Err: fmt.Errorf("failed to read config file: %w", err),
 			}
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[SECURITY] Warning: Using config.yaml - prefer HPN_API_KEYS env var in production\n")
 	}
 
 	// Unmarshal configuration
@@ -71,11 +75,25 @@ func loadConfig(configPath string) (*Configuration, error) {
 		}
 	}
 
-	// Load API keys from environment variable if not set in config file
-	if err := loadAPIKeysFromEnv(&cfg); err != nil {
+	// PRIORITY: Load API keys from HPN_API_KEYS env var first
+	envKeysLoaded, err := loadAPIKeysFromPrimaryEnv(&cfg)
+	if err != nil {
 		return nil, &ConfigError{
-			Op:  "load_env_keys",
+			Op:  "load_primary_env_keys",
 			Err: err,
+		}
+	}
+
+	// If primary env var was used, clear any file-based keys for security
+	if envKeysLoaded {
+		fmt.Fprintf(os.Stderr, "[SECURITY] Using HPN_API_KEYS env var (file config keys ignored)\n")
+	} else {
+		// Fallback: Load API keys from legacy HPN_ROUTER_API_KEY_* format
+		if err := loadAPIKeysFromLegacyEnv(&cfg); err != nil {
+			return nil, &ConfigError{
+				Op:  "load_legacy_env_keys",
+				Err: err,
+			}
 		}
 	}
 
@@ -107,10 +125,64 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("logging.output_path", "")
 }
 
-// loadAPIKeysFromEnv loads API keys from environment variables.
-// Environment variable format: HPN_ROUTER_API_KEY_<PROVIDER>_<INDEX>=<key>
-// Example: HPN_ROUTER_API_KEY_OPENAI_0=sk-xxx
-func loadAPIKeysFromEnv(cfg *Configuration) error {
+// loadAPIKeysFromPrimaryEnv loads API keys from the HPN_API_KEYS environment variable.
+// This is the PRIMARY and PREFERRED method for production deployments.
+// Format: comma-separated list of API keys (e.g., "key1,key2,key3")
+// Returns true if keys were loaded from this source.
+func loadAPIKeysFromPrimaryEnv(cfg *Configuration) (bool, error) {
+	envValue := os.Getenv(EnvAPIKeys)
+	if envValue == "" {
+		return false, nil
+	}
+
+	// Parse comma-separated keys
+	keys := strings.Split(envValue, ",")
+	if len(keys) == 0 {
+		return false, nil
+	}
+
+	// Clear existing keys from file config (env takes priority)
+	cfg.KeyPool.Keys = make([]domain.APIKey, 0, len(keys))
+
+	for i, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+
+		// Auto-detect provider from key prefix
+		provider := detectProviderFromKey(key)
+
+		cfg.KeyPool.Keys = append(cfg.KeyPool.Keys, domain.APIKey{
+			Key:      key,
+			Name:     fmt.Sprintf("env_key_%d", i),
+			Provider: provider,
+			Enabled:  true,
+			Weight:   1,
+		})
+	}
+
+	return len(cfg.KeyPool.Keys) > 0, nil
+}
+
+// detectProviderFromKey attempts to identify the provider from key format.
+func detectProviderFromKey(key string) domain.ProviderType {
+	switch {
+	case strings.HasPrefix(key, "sk-"):
+		return domain.ProviderType("openai")
+	case strings.HasPrefix(key, "sk-ant-"):
+		return domain.ProviderType("anthropic")
+	case strings.HasPrefix(key, "AIza"):
+		return domain.ProviderType("google")
+	default:
+		// Default to google since we're routing to Gemini
+		return domain.ProviderType("google")
+	}
+}
+
+// loadAPIKeysFromLegacyEnv loads API keys from legacy HPN_ROUTER_API_KEY_* format.
+// This is kept for backward compatibility but HPN_API_KEYS is preferred.
+func loadAPIKeysFromLegacyEnv(cfg *Configuration) error {
 	envKeys := os.Environ()
 	prefix := envPrefix + "_API_KEY_"
 

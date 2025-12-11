@@ -1,4 +1,3 @@
-// Package handler provides HTTP handlers for the API router.
 package handler
 
 import (
@@ -7,10 +6,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/hpn/hpn-g-router/internal/ui"
 )
 
-// CORSMiddleware returns a middleware that enables permissive CORS.
-// This allows web applications to call the API directly.
+// CORSMiddleware enables permissive CORS for web clients.
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
@@ -22,30 +22,22 @@ func CORSMiddleware() gin.HandlerFunc {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
-
 		c.Next()
 	}
 }
 
-// LoggingMiddleware returns a middleware that logs request details in JSON format.
-// It tracks the key used for each request (essential for debugging).
+// LoggingMiddleware logs request details and cost savings.
 func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
 		query := c.Request.URL.RawQuery
 
-		// Process request
 		c.Next()
 
-		// Calculate latency
 		latency := time.Since(start)
-
-		// Get key from context (set by ProxyHandler)
 		keyUsed, _ := c.Get("key_used")
 		keyName, _ := keyUsed.(string)
-
-		// Get attempt count
 		attempts, _ := c.Get("attempts")
 		attemptCount, _ := attempts.(int)
 
@@ -60,11 +52,20 @@ func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 			slog.Int("attempts", attemptCount),
 			slog.String("user_agent", c.Request.UserAgent()),
 		)
+
+		ui.PrintRequest(c.Request.Method, path, c.Writer.Status(), latency, keyName)
+
+		if c.Writer.Status() == http.StatusOK {
+			if m, ok := c.Get("cost_metrics"); ok {
+				if cm, ok := m.(CostMetrics); ok {
+					ui.PrintChaChing(FormatMoneySaved(cm.MoneySaved), FormatTotalSaved(cm.TotalSaved))
+				}
+			}
+		}
 	}
 }
 
-// RecoveryMiddleware returns a middleware that recovers from panics.
-// It logs the error and returns a 500 response in OpenAI-compatible format.
+// RecoveryMiddleware recovers from panics and returns OpenAI-compatible errors.
 func RecoveryMiddleware(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
@@ -73,36 +74,38 @@ func RecoveryMiddleware(logger *slog.Logger) gin.HandlerFunc {
 					slog.Any("error", err),
 					slog.String("path", c.Request.URL.Path),
 				)
-
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 					"error": gin.H{
-						"message": "Internal server error",
+						"message": "internal server error",
 						"type":    "server_error",
 						"code":    "internal_error",
 					},
 				})
 			}
 		}()
-
 		c.Next()
 	}
 }
 
-// StripAuthHeadersMiddleware removes original Authorization headers.
-// The ProxyHandler will inject the rotated API key.
+// StripAuthHeadersMiddleware removes client auth headers; we inject our own keys.
+// SECURITY: This prevents clients from injecting fake Authorization headers.
 func StripAuthHeadersMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Store original auth header for logging (masked)
+		// Strip Authorization header - we use our own keys
 		if auth := c.GetHeader("Authorization"); auth != "" {
 			c.Set("original_auth", "***STRIPPED***")
+			c.Request.Header.Del("Authorization") // CRITICAL: Actually remove the header
 		}
+
+		// Also strip other potentially dangerous headers
+		c.Request.Header.Del("X-Api-Key")
+		c.Request.Header.Del("Api-Key")
 
 		c.Next()
 	}
 }
 
-// maskKey returns a masked version of the API key for logging.
-// Shows first 8 and last 4 characters.
+
 func maskKey(key string) string {
 	if key == "" {
 		return ""

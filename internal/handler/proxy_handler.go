@@ -1,4 +1,3 @@
-// Package handler provides HTTP handlers for the API router.
 package handler
 
 import (
@@ -7,152 +6,132 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/hpn/hpn-g-router/internal/adapter"
 	"github.com/hpn/hpn-g-router/internal/domain"
+	"github.com/hpn/hpn-g-router/internal/ui"
 )
 
-const (
-	// DefaultMaxRetries is the default maximum number of retry attempts.
-	DefaultMaxRetries = 3
-)
+const DefaultMaxRetries = 3
 
-// ProxyHandler handles API proxy requests with retry/failover logic.
-// It implements "The Immortal Mode" - automatic key rotation on failures.
+// ProxyHandler proxies OpenAI-compatible requests with automatic key rotation.
 type ProxyHandler struct {
-	keyManager *domain.KeyManager
+	km         *domain.KeyManager
 	adapter    adapter.AIProvider
 	logger     *slog.Logger
 	maxRetries int
 }
 
-// ProxyHandlerOption is a functional option for configuring ProxyHandler.
+// ProxyHandlerOption configures a ProxyHandler.
 type ProxyHandlerOption func(*ProxyHandler)
 
-// WithMaxRetries sets the maximum number of retry attempts.
-func WithMaxRetries(max int) ProxyHandlerOption {
+// WithMaxRetries sets retry count.
+func WithMaxRetries(n int) ProxyHandlerOption {
 	return func(h *ProxyHandler) {
-		if max > 0 {
-			h.maxRetries = max
+		if n > 0 {
+			h.maxRetries = n
 		}
 	}
 }
 
-// WithLogger sets a custom logger.
-func WithLogger(logger *slog.Logger) ProxyHandlerOption {
-	return func(h *ProxyHandler) {
-		h.logger = logger
-	}
+// WithLogger sets the logger.
+func WithLogger(l *slog.Logger) ProxyHandlerOption {
+	return func(h *ProxyHandler) { h.logger = l }
 }
 
-// NewProxyHandler creates a new ProxyHandler.
-func NewProxyHandler(
-	keyManager *domain.KeyManager,
-	aiAdapter adapter.AIProvider,
-	opts ...ProxyHandlerOption,
-) *ProxyHandler {
+// NewProxyHandler creates a configured ProxyHandler.
+func NewProxyHandler(km *domain.KeyManager, ai adapter.AIProvider, opts ...ProxyHandlerOption) *ProxyHandler {
 	h := &ProxyHandler{
-		keyManager: keyManager,
-		adapter:    aiAdapter,
+		km:         km,
+		adapter:    ai,
 		logger:     slog.Default(),
 		maxRetries: DefaultMaxRetries,
 	}
-
 	for _, opt := range opts {
 		opt(h)
 	}
-
 	return h
 }
 
-// HandleChatCompletion handles POST /v1/chat/completions
-// This is the main proxy endpoint that implements retry/failover logic.
+// HandleChatCompletion proxies /v1/chat/completions with retry logic.
 func (h *ProxyHandler) HandleChatCompletion(c *gin.Context) {
-	// Parse OpenAI-compatible request
 	var req adapter.OpenAIRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		h.sendOpenAIError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request body: "+err.Error())
+		h.sendError(c, http.StatusBadRequest, "invalid_request_error", "invalid request body: "+err.Error())
 		return
 	}
 
-	// Validate request
 	if len(req.Messages) == 0 {
-		h.sendOpenAIError(c, http.StatusBadRequest, "invalid_request_error", "messages array is required")
+		h.sendError(c, http.StatusBadRequest, "invalid_request_error", "messages array is required")
 		return
 	}
 
-	// Execute with retry logic
+	var input strings.Builder
+	for _, m := range req.Messages {
+		input.WriteString(m.Content)
+		input.WriteString(" ")
+	}
+
 	resp, attempts, err := h.executeWithRetry(c, req)
 	if err != nil {
-		h.logger.Error("all retries exhausted",
+		h.logger.Error("retries exhausted",
 			slog.String("error", err.Error()),
 			slog.Int("attempts", attempts),
 		)
-		h.sendOpenAIError(c, http.StatusServiceUnavailable, "server_error", "Service temporarily unavailable. Please try again later.")
+		h.sendError(c, http.StatusServiceUnavailable, "server_error", "service temporarily unavailable")
 		return
 	}
 
-	// Store metadata for logging middleware
 	c.Set("attempts", attempts)
 
-	// Return OpenAI-compatible response
+	var output string
+	if len(resp.Choices) > 0 {
+		output = resp.Choices[0].Message.Content
+	}
+
+	c.Set("cost_metrics", CalculateRequestCost(input.String(), output))
 	c.JSON(http.StatusOK, resp)
 }
 
-// executeWithRetry attempts the request with automatic key rotation on failures.
-// Returns the response, number of attempts, and any error.
 func (h *ProxyHandler) executeWithRetry(c *gin.Context, req adapter.OpenAIRequest) (adapter.OpenAIResponse, int, error) {
 	var lastErr error
-	var usedKeys []string
+	var used []string
 
 	for attempt := 1; attempt <= h.maxRetries; attempt++ {
-		// Get next key from KeyManager
-		key, err := h.keyManager.GetNextKey()
+		key, err := h.km.GetNextKey()
 		if err != nil {
-			h.logger.Warn("no keys available",
-				slog.Int("attempt", attempt),
-				slog.String("error", err.Error()),
-			)
+			h.logger.Warn("no keys available", slog.Int("attempt", attempt), slog.String("error", err.Error()))
 			return adapter.OpenAIResponse{}, attempt, err
 		}
 
-		usedKeys = append(usedKeys, key)
+		used = append(used, key)
 		c.Set("key_used", key)
 
-		h.logger.Debug("attempting request",
+		h.logger.Debug("trying request",
 			slog.Int("attempt", attempt),
 			slog.String("key", maskKey(key)),
 			slog.String("model", req.Model),
 		)
 
-		// Create a new adapter with the current key
-		geminiAdapter := adapter.NewGeminiAdapter(key)
-
-		// Execute request
-		resp, err := geminiAdapter.ChatCompletion(c.Request.Context(), req)
+		gemini := adapter.NewGeminiAdapter(key)
+		resp, err := gemini.ChatCompletion(c.Request.Context(), req)
 		if err == nil {
-			// Success!
-			h.logger.Info("request successful",
-				slog.Int("attempt", attempt),
-				slog.String("model", resp.Model),
-			)
+			h.logger.Info("request ok", slog.Int("attempt", attempt), slog.String("model", resp.Model))
 			return resp, attempt, nil
 		}
 
-		// Check if error is retryable
-		if h.isRetryableError(err) {
-			h.logger.Warn("retryable error, rotating key",
+		if h.isRetryable(err) {
+			h.logger.Warn("rotating key",
 				slog.Int("attempt", attempt),
 				slog.String("key", maskKey(key)),
 				slog.String("error", err.Error()),
 			)
-
-			// Mark key as dead (circuit breaker)
-			h.keyManager.MarkAsDead(key)
+			ui.PrintDeadKey(key, err.Error())
+			h.km.MarkAsDead(key)
 			lastErr = err
 			continue
 		}
 
-		// Non-retryable error (4xx client errors)
 		h.logger.Error("non-retryable error",
 			slog.Int("attempt", attempt),
 			slog.String("error", err.Error()),
@@ -160,48 +139,39 @@ func (h *ProxyHandler) executeWithRetry(c *gin.Context, req adapter.OpenAIReques
 		return adapter.OpenAIResponse{}, attempt, err
 	}
 
-	h.logger.Error("max retries exhausted",
-		slog.Int("max_retries", h.maxRetries),
-		slog.Any("used_keys", h.maskKeys(usedKeys)),
+	h.logger.Error("max retries reached",
+		slog.Int("max", h.maxRetries),
+		slog.Any("used_keys", h.maskAll(used)),
 	)
-
 	return adapter.OpenAIResponse{}, h.maxRetries, lastErr
 }
 
-// isRetryableError determines if an error should trigger a retry.
-// Retryable: 429 (Rate Limited), 5xx (Server Errors)
-// Non-retryable: 4xx (Client Errors except 429)
-func (h *ProxyHandler) isRetryableError(err error) bool {
-	errStr := err.Error()
+func (h *ProxyHandler) isRetryable(err error) bool {
+	s := err.Error()
 
-	// Check for rate limiting (429)
-	if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") {
+	// rate limiting
+	if strings.Contains(s, "429") || strings.Contains(s, "rate limit") {
 		return true
 	}
 
-	// Check for server errors (5xx)
-	if strings.Contains(errStr, "500") ||
-		strings.Contains(errStr, "502") ||
-		strings.Contains(errStr, "503") ||
-		strings.Contains(errStr, "504") {
+	// server errors
+	if strings.Contains(s, "500") || strings.Contains(s, "502") ||
+		strings.Contains(s, "503") || strings.Contains(s, "504") {
 		return true
 	}
 
-	// Check for quota exhausted
-	if strings.Contains(errStr, "quota") || strings.Contains(errStr, "exhausted") {
+	// quota exhausted
+	if strings.Contains(s, "quota") || strings.Contains(s, "exhausted") {
 		return true
 	}
 
-	// Default: not retryable (likely client error)
 	return false
 }
 
-// sendOpenAIError sends an error response in OpenAI-compatible format.
-// This ensures clients never see internal Google errors.
-func (h *ProxyHandler) sendOpenAIError(c *gin.Context, status int, errType, message string) {
+func (h *ProxyHandler) sendError(c *gin.Context, status int, errType, msg string) {
 	c.JSON(status, gin.H{
 		"error": gin.H{
-			"message": message,
+			"message": msg,
 			"type":    errType,
 			"param":   nil,
 			"code":    nil,
@@ -209,70 +179,42 @@ func (h *ProxyHandler) sendOpenAIError(c *gin.Context, status int, errType, mess
 	})
 }
 
-// maskKeys returns masked versions of multiple keys.
-func (h *ProxyHandler) maskKeys(keys []string) []string {
-	masked := make([]string, len(keys))
+func (h *ProxyHandler) maskAll(keys []string) []string {
+	res := make([]string, len(keys))
 	for i, k := range keys {
-		masked[i] = maskKey(k)
+		res[i] = maskKey(k)
 	}
-	return masked
+	return res
 }
 
-// HandleModels handles GET /v1/models
-// Returns a list of available models (OpenAI-compatible).
+// HandleModels returns available models (OpenAI format).
 func (h *ProxyHandler) HandleModels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
 		"data": []gin.H{
-			{
-				"id":       "gpt-4",
-				"object":   "model",
-				"created":  1687882411,
-				"owned_by": "openai",
-			},
-			{
-				"id":       "gpt-4-turbo",
-				"object":   "model",
-				"created":  1687882411,
-				"owned_by": "openai",
-			},
-			{
-				"id":       "gpt-3.5-turbo",
-				"object":   "model",
-				"created":  1687882411,
-				"owned_by": "openai",
-			},
-			{
-				"id":       "gemini-1.5-pro",
-				"object":   "model",
-				"created":  1687882411,
-				"owned_by": "google",
-			},
-			{
-				"id":       "gemini-1.5-flash",
-				"object":   "model",
-				"created":  1687882411,
-				"owned_by": "google",
-			},
+			{"id": "gpt-4", "object": "model", "created": 1687882411, "owned_by": "openai"},
+			{"id": "gpt-4-turbo", "object": "model", "created": 1687882411, "owned_by": "openai"},
+			{"id": "gpt-3.5-turbo", "object": "model", "created": 1687882411, "owned_by": "openai"},
+			{"id": "gemini-1.5-pro", "object": "model", "created": 1687882411, "owned_by": "google"},
+			{"id": "gemini-1.5-flash", "object": "model", "created": 1687882411, "owned_by": "google"},
 		},
 	})
 }
 
-// HandleHealth handles GET /health
-// Returns server health status.
+// HandleHealth reports server health status.
 func (h *ProxyHandler) HandleHealth(c *gin.Context) {
-	activeKeys := h.keyManager.ActiveKeyCount()
-	deadKeys := h.keyManager.DeadKeyCount()
+	active := h.km.ActiveKeyCount()
+	dead := h.km.DeadKeyCount()
 
 	status := "healthy"
-	if activeKeys == 0 {
+	if active == 0 {
 		status = "degraded"
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":      status,
-		"active_keys": activeKeys,
-		"dead_keys":   deadKeys,
-		"total_keys":  h.keyManager.TotalKeyCount(),
+		"active_keys": active,
+		"dead_keys":   dead,
+		"total_keys":  h.km.TotalKeyCount(),
 	})
 }
