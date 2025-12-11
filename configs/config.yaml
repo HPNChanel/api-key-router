@@ -1,0 +1,88 @@
+# HPN-G-Router Configuration File
+# This file demonstrates all available configuration options.
+
+# Server configuration
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout_seconds: 30
+  write_timeout_seconds: 30
+  shutdown_timeout_seconds: 15
+
+# API Key Pool Configuration
+key_pool:
+  # Rotation strategy: round-robin, random, weighted, least-used
+  strategy: "round-robin"
+  
+  # Number of times to retry with a different key on failure
+  retry_count: 3
+  
+  # Seconds to wait before retrying an exhausted key
+  cooldown_seconds: 60
+  
+  # List of API keys
+  keys:
+    - key: "${OPENAI_API_KEY_1}"
+      name: "openai-primary"
+      provider: "openai"
+      weight: 10
+      enabled: true
+      rate_limit_per_minute: 60
+
+    - key: "${OPENAI_API_KEY_2}"
+      name: "openai-secondary"
+      provider: "openai"
+      weight: 5
+      enabled: true
+      rate_limit_per_minute: 60
+
+    - key: "${ANTHROPIC_API_KEY}"
+      name: "anthropic-primary"
+      provider: "anthropic"
+      weight: 10
+      enabled: true
+      rate_limit_per_minute: 50
+
+    - key: "${GOOGLE_API_KEY}"
+      name: "google-gemini"
+      provider: "google"
+      weight: 10
+      enabled: true
+      rate_limit_per_minute: 100
+
+# Provider configurations
+providers:
+  - name: "OpenAI"
+    type: "openai"
+    base_url: "https://api.openai.com/v1"
+    enabled: true
+    rate_limit_per_minute: 60
+
+  - name: "Anthropic"
+    type: "anthropic"
+    base_url: "https://api.anthropic.com/v1"
+    enabled: true
+    rate_limit_per_minute: 50
+
+  - name: "Google AI"
+    type: "google"
+    base_url: "https://generativelanguage.googleapis.com/v1"
+    enabled: true
+    rate_limit_per_minute: 100
+
+  - name: "Azure OpenAI"
+    type: "azure"
+    base_url: "https://your-resource.openai.azure.com"
+    enabled: false
+    rate_limit_per_minute: 60
+
+# Logging configuration
+logging:
+  # Level: debug, info, warn, error
+  level: "info"
+  
+  # Format: json, text
+  format: "json"
+  
+  # Output path: empty for stdout
+  output_path: ""
