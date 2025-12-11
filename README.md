@@ -1,4 +1,6 @@
-<![CDATA[```
+# HPN Router
+
+```
  ██╗  ██╗██████╗ ███╗   ██╗    ██████╗  ██████╗ ██╗   ██╗████████╗███████╗██████╗ 
  ██║  ██║██╔══██╗████╗  ██║    ██╔══██╗██╔═══██╗██║   ██║╚══██╔══╝██╔════╝██╔══██╗
  ███████║██████╔╝██╔██╗ ██║    ██████╔╝██║   ██║██║   ██║   ██║   █████╗  ██████╔╝
@@ -7,82 +9,127 @@
  ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═══╝    ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   ╚══════╝╚═╝  ╚═╝
 ```
 
-<h3 align="center">✨ The Infinite Gateway - Turn Free Tier into Enterprise Power ✨</h3>
+<div align="center">
 
-<p align="center">
-  <a href="https://goreportcard.com/report/github.com/hpn/hpn-g-router"><img src="https://goreportcard.com/badge/github.com/hpn/hpn-g-router?style=flat-square&label=Go%20Report%20Card&color=00ADD8" alt="Go Report Card: A+"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License: MIT"></a>
-  <a href="https://golang.org"><img src="https://img.shields.io/badge/Built%20with-Golang-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Built with: Golang"></a>
-  <img src="https://img.shields.io/badge/Money%20Saved-♾️-gold?style=flat-square" alt="Money Saved: ♾️">
-</p>
+**Smart Load Balancer & Failover Proxy for Google Gemini API**
 
----
+[![Go Report Card](https://goreportcard.com/badge/github.com/hpn/hpn-g-router?style=flat-square&label=Go%20Report%20Card&color=00ADD8)](https://goreportcard.com/report/github.com/hpn/hpn-g-router)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+[![Built with Golang](https://img.shields.io/badge/Built%20with-Golang-00ADD8?style=flat-square&logo=go&logoColor=white)](https://golang.org)
+![Money Saved](https://img.shields.io/badge/Money%20Saved-♾️-gold?style=flat-square)
 
-## 🤔 The Problem
+</div>
 
-You've been there. We've all been there.
+## Overview
 
-> **"Tired of Google Gemini's 15 RPM limit?"**
->
-> **"Hate getting `429 Too Many Requests` errors right in the middle of your workflow?"**
->
-> **"Don't want to rewrite your entire OpenAI-compatible codebase just to switch providers?"**
+**HPN Router** is a production-grade API gateway that manages multiple Google Gemini API keys with intelligent load balancing and automatic failover. It provides an OpenAI-compatible interface, allowing you to leverage Google's free tier without changing your existing codebase.
 
-The Free Tier is generous... but **15 requests per minute** isn't enough when you're building something real.
+### Problem Statement
 
----
+- **Rate Limits**: Google Gemini's free tier enforces a 15 RPM limit per API key
+- **Error Handling**: `429 Too Many Requests` errors interrupt workflows
+- **Vendor Lock-in**: Switching between AI providers requires significant code changes
 
-## 💡 The Solution
+### Solution
 
-**HPN Router** is your smart **Load Balancer & Failover Proxy** that sits between your application and Google's Gemini API.
-
-It manages **multiple free API keys** to create a **continuous, unbreakable stream** of AI power. When one key hits its limit, the next one takes over. Instantly. Seamlessly.
+HPN Router acts as a transparent proxy between your application and Google Gemini, managing multiple API keys to create a unified, high-availability endpoint with automatic failover and load distribution.
 
 ```
-┌──────────────────┐         ┌──────────────────┐         ┌──────────────────┐
-│                  │         │                  │         │                  │
-│   Your App       │ ──────► │   HPN Router     │ ──────► │  Google Gemini   │
-│   (OpenAI SDK)   │         │   (The Magic)    │         │  (Free Tier)     │
-│                  │         │                  │         │                  │
-└──────────────────┘         └──────────────────┘         └──────────────────┘
-                                     │
-                              🔄 Key 1 → 429?
-                              🔄 Key 2 → 429?
-                              🔄 Key 3 → ✅ Success!
+┌──────────────┐         ┌──────────────┐         ┌──────────────┐
+│              │         │              │         │              │
+│  Your App    │────────▶│  HPN Router  │────────▶│   Gemini API │
+│ (OpenAI SDK) │         │              │         │  (Free Tier) │
+│              │         │              │         │              │
+└──────────────┘         └──────────────┘         └──────────────┘
+                                │
+                         ┌──────┴──────┐
+                         │  Key Pool   │
+                         ├─────────────┤
+                         │ Key 1 ─ 15R │
+                         │ Key 2 ─ 15R │
+                         │ Key 3 ─ 15R │
+                         └─────────────┘
 ```
 
 ---
 
-## ✨ Key Features
+## Features
+
+### Core Capabilities
 
 | Feature | Description |
 |---------|-------------|
-| 🔄 **Smart Rotation** | Round-robin key scheduling distributes load evenly across all your API keys |
-| 🛡️ **Immortal Mode** | Auto-failover mechanism - if Key 1 fails with 429, Key 2 takes over instantly |
-| 💸 **Cost Estimator** | Tracks how much $$$ you would have paid OpenAI (spoiler: it's a lot) |
-| ⚡ **Flash Cache** | In-memory caching for identical requests - get instant `0ms` responses |
-| 🔌 **Universal Adapter** | Speak "OpenAI" to your app → Get "Gemini" under the hood |
+| **Smart Rotation** | Round-robin scheduling distributes requests evenly across all API keys |
+| **Immortal Mode** | Automatic failover - when one key hits rate limits, the next takes over instantly |
+| **Cost Estimator** | Tracks equivalent OpenAI costs to demonstrate savings |
+| **Flash Cache** | In-memory caching for duplicate requests with sub-millisecond response times |
+| **Universal Adapter** | OpenAI-compatible API that transparently translates requests to Gemini format |
+| **Security** | Automatic log redaction for API keys and sensitive headers |
+
+### Architecture
+
+```
+internal/
+├── adapter/        # Provider-specific API translation
+│   └── gemini.go   # OpenAI → Gemini request/response mapping
+├── config/         # Configuration management (Viper)
+├── domain/         # Core business logic
+│   ├── key_manager.go    # Thread-safe key rotation
+│   └── models.go         # Domain entities
+├── handler/        # HTTP request handling
+│   └── chat.go     # Chat completion endpoint
+└── middleware/     # Cross-cutting concerns
+    ├── cache.go    # Flash cache implementation
+    ├── cost.go     # Cost estimation
+    └── logger.go   # Structured logging with redaction
+```
 
 ---
 
-## 🚀 Quick Start
+## Installation
 
-Get up and running in **30 seconds**.
+### Prerequisites
 
-### 1. Clone & Install
+- Go 1.21 or higher
+- Multiple Google Gemini API keys ([Get keys here](https://aistudio.google.com/app/apikey))
+
+### Quick Start
 
 ```bash
+# Clone the repository
 git clone https://github.com/hpn/hpn-g-router.git
 cd hpn-g-router
+
+# Install dependencies
 go mod download
+
+# Configure API keys (see Configuration section)
+cp configs/config.example.yaml configs/config.yaml
+# Edit config.yaml with your API keys
+
+# Run the server
+go run cmd/server/main.go
 ```
 
-### 2. Configure Your Keys
+### Build from Source
+
+```bash
+# Build binary
+go build -o hpn-router cmd/server/main.go
+
+# Run binary
+./hpn-router
+```
+
+---
+
+## Configuration
+
+### File-based Configuration
 
 Create `configs/config.yaml`:
 
 ```yaml
-# 🔐 HPN Router Configuration
 server:
   host: "0.0.0.0"
   port: 8080
@@ -95,155 +142,319 @@ key_pool:
   cooldown_seconds: 60
   keys:
     - name: "gemini_key_1"
-      key: "AIzaSy...your-first-key..."
+      key: "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
       provider: "google"
       enabled: true
-
     - name: "gemini_key_2"
-      key: "AIzaSy...your-second-key..."
-      provider: "google"
-      enabled: true
-
-    - name: "gemini_key_3"
-      key: "AIzaSy...your-third-key..."
+      key: "AIzaSyYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY"
       provider: "google"
       enabled: true
 
 logging:
-  level: "info"
-  format: "json"
+  level: "info"      # debug | info | warn | error
+  format: "json"     # json | text
 ```
 
-> **💡 Pro Tip:** For production, use the `HPN_API_KEYS` environment variable instead of a config file:
-> ```bash
-> export HPN_API_KEYS="AIzaSy...key1,AIzaSy...key2,AIzaSy...key3"
-> ```
+### Environment Variables (Production)
 
-### 3. Run the Server
+For production deployments, use environment variables to avoid committing secrets:
 
 ```bash
-go run cmd/server/main.go
+# Comma-separated list of API keys
+export HPN_API_KEYS="AIzaSyXXX,AIzaSyYYY,AIzaSyZZZ"
+
+# Optional: Override server port
+export HPN_PORT="8080"
+
+# Optional: Override log level
+export HPN_LOG_LEVEL="info"
 ```
 
-That's it! 🎉 Your infinite gateway is now running at `http://localhost:8080`.
+> **Security Note**: The router automatically prioritizes environment variables over config files and redacts sensitive data from logs.
+
+### Configuration Reference
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `server.host` | string | `0.0.0.0` | Server bind address |
+| `server.port` | int | `8080` | HTTP port |
+| `server.read_timeout_seconds` | int | `30` | Request read timeout |
+| `server.write_timeout_seconds` | int | `30` | Response write timeout |
+| `key_pool.strategy` | string | `round-robin` | Key selection strategy |
+| `key_pool.retry_count` | int | `3` | Max retries per request |
+| `key_pool.cooldown_seconds` | int | `60` | Failed key cooldown period |
+| `logging.level` | string | `info` | Log verbosity |
+| `logging.format` | string | `json` | Log output format |
 
 ---
 
-## 📖 Usage Examples
+## Usage
 
-### Using cURL
+### cURL Example
 
 ```bash
 curl -X POST http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer any-fake-key-works" \
+  -H "Authorization: Bearer dummy-key" \
   -d '{
     "model": "gpt-4",
     "messages": [
-      {"role": "user", "content": "Hello, world!"}
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Explain machine learning in one sentence."}
     ]
   }'
 ```
 
-### Using Python (OpenAI SDK)
-
-The magic? **Just change the `base_url`**. Your existing code works as-is.
+### Python (OpenAI SDK)
 
 ```python
 from openai import OpenAI
 
-# Point to HPN Router instead of OpenAI
 client = OpenAI(
     base_url="http://localhost:8080/v1",
-    api_key="any-key-works-here"  # Router handles the real keys
+    api_key="dummy-key"  # Any value works; router manages real keys
 )
 
 response = client.chat.completions.create(
-    model="gpt-4",  # Router translates this to Gemini
+    model="gpt-4",
     messages=[
-        {"role": "user", "content": "Explain quantum computing in simple terms."}
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is the capital of France?"}
     ]
 )
 
 print(response.choices[0].message.content)
 ```
 
-### Using Node.js (OpenAI SDK)
+### Node.js (OpenAI SDK)
 
 ```javascript
 import OpenAI from 'openai';
 
 const client = new OpenAI({
   baseURL: 'http://localhost:8080/v1',
-  apiKey: 'any-key-works-here',
+  apiKey: 'dummy-key'
 });
 
-const response = await client.chat.completions.create({
+const completion = await client.chat.completions.create({
   model: 'gpt-4',
-  messages: [{ role: 'user', content: 'Write a haiku about coding.' }],
+  messages: [
+    { role: 'system', content: 'You are a helpful assistant.' },
+    { role: 'user', content: 'Write a haiku about TypeScript.' }
+  ]
 });
 
-console.log(response.choices[0].message.content);
+console.log(completion.choices[0].message.content);
+```
+
+### Health Check
+
+```bash
+curl http://localhost:8080/health
+```
+
+Response:
+```json
+{
+  "status": "healthy",
+  "active_keys": 3,
+  "total_requests": 1523,
+  "total_saved": "$45.67"
+}
 ```
 
 ---
 
-## ⚙️ Configuration Options
+## Advanced Features
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `server.host` | string | `0.0.0.0` | Server bind address |
-| `server.port` | int | `8080` | Server port |
-| `server.read_timeout_seconds` | int | `30` | HTTP read timeout |
-| `server.write_timeout_seconds` | int | `30` | HTTP write timeout |
-| `key_pool.strategy` | string | `round-robin` | Key rotation strategy |
-| `key_pool.retry_count` | int | `3` | Number of retry attempts per request |
-| `key_pool.cooldown_seconds` | int | `60` | Cooldown period for failed keys |
-| `logging.level` | string | `info` | Log level (`debug`, `info`, `warn`, `error`) |
-| `logging.format` | string | `json` | Log format (`json`, `text`) |
+### Flash Cache
+
+The in-memory cache uses SHA-256 hashing of request bodies to identify duplicate requests:
+
+```
+Request Flow:
+1. Hash incoming request body
+2. Check cache (TTL: 5 minutes)
+3. Cache HIT → Return immediately (~0ms latency)
+4. Cache MISS → Forward to Gemini → Store response
+```
+
+**Log Output:**
+```
+{"level":"info","msg":"⚡ CACHE HIT","latency_ms":0.12}
+{"level":"info","msg":"💸 CHA-CHING! You saved $0.0008 on this request. Total Saved: $45.67"}
+```
+
+### Cost Estimator
+
+Calculates equivalent OpenAI costs using approximate tokenization:
+
+**Pricing:**
+- Input: $0.50 per 1M tokens
+- Output: $1.50 per 1M tokens
+
+**Token Estimation:** `tokens ≈ word_count × 1.3`
+
+### Automatic Failover
+
+When a key receives a `429` response:
+
+1. Mark key as temporarily disabled (cooldown period)
+2. Retrieve next available key from pool
+3. Retry request with new key
+4. Log failover event
+
+**Example Log:**
+```json
+{
+  "level":"warn",
+  "msg":"Key rotation triggered",
+  "reason":"429 Too Many Requests",
+  "old_key":"gemini_key_1",
+  "new_key":"gemini_key_2",
+  "retry_attempt":1
+}
+```
 
 ---
 
-## 🗺️ Roadmap
+## Testing
 
-- [x] 🔄 Round-Robin Key Rotation
-- [x] 🛡️ Auto-Failover (Immortal Mode)
-- [x] 💸 Cost Tracker
-- [x] ⚡ Flash Cache
-- [x] 🔐 Log Redaction (Security)
-- [ ] 📊 Dashboard UI *(Coming Soon)*
-- [ ] 🌐 Multi-Provider Support (Anthropic, Mistral)
-- [ ] 📈 Prometheus Metrics Export
+### Run Unit Tests
 
----
+```bash
+go test ./... -v
+```
 
-## 🤝 Contributing
+### Run with Race Detection
 
-Contributions are welcome! Feel free to:
+```bash
+go test ./... -race
+```
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+### E2E Tests
 
----
+```bash
+go test ./tests -v -run TestRouterE2E
+```
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+**Test Coverage:**
+- Happy path (single key, successful request)
+- Failover logic (429 → retry with different key)
+- Exhaustion scenario (all keys depleted)
+- Concurrency (100 parallel requests, no race conditions)
 
 ---
 
-<p align="center">
-  Built with ❤️ by <strong>HPN Corporation</strong>
-</p>
+## Deployment
 
-<p align="center">
-  ⭐ <strong>Star this repo if it saved you money!</strong> ⭐
-</p>
+### Docker
 
-<p align="center">
-  <sub>Because enterprise AI shouldn't cost enterprise money.</sub>
-</p>
-]]>
+```dockerfile
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+COPY . .
+RUN go mod download
+RUN go build -o hpn-router cmd/server/main.go
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY --from=builder /app/hpn-router .
+
+EXPOSE 8080
+CMD ["./hpn-router"]
+```
+
+```bash
+# Build image
+docker build -t hpn-router:latest .
+
+# Run container
+docker run -d \
+  -p 8080:8080 \
+  -e HPN_API_KEYS="key1,key2,key3" \
+  hpn-router:latest
+```
+
+### Systemd Service
+
+```ini
+[Unit]
+Description=HPN Router Service
+After=network.target
+
+[Service]
+Type=simple
+User=hpn-router
+WorkingDirectory=/opt/hpn-router
+ExecStart=/opt/hpn-router/hpn-router
+Restart=on-failure
+Environment="HPN_API_KEYS=key1,key2,key3"
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+## Roadmap
+
+- [x] Round-robin key rotation
+- [x] Automatic failover (Immortal Mode)
+- [x] Cost tracking and estimation
+- [x] In-memory caching (Flash Cache)
+- [x] Log redaction for security
+- [x] OpenAI-compatible API adapter
+- [ ] Web dashboard for monitoring
+- [ ] Multi-provider support (Anthropic Claude, Mistral)
+- [ ] Prometheus metrics export
+- [ ] Redis-backed distributed cache
+- [ ] Rate limiting per client
+- [ ] Webhook notifications for key exhaustion
+
+---
+
+## Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. **Fork** the repository
+2. **Create** a feature branch: `git checkout -b feature/your-feature`
+3. **Commit** your changes: `git commit -m 'Add new feature'`
+4. **Push** to the branch: `git push origin feature/your-feature`
+5. **Open** a Pull Request
+
+### Development Guidelines
+
+- Follow [Effective Go](https://golang.org/doc/effective_go) conventions
+- Add tests for new features
+- Update documentation for API changes
+- Run `go fmt` and `go vet` before committing
+
+---
+
+## License
+
+This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
+
+---
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/hpn/hpn-g-router/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/hpn/hpn-g-router/discussions)
+
+---
+
+<div align="center">
+
+**Built with ❤️ by HPN Corporation**
+
+*Because enterprise AI shouldn't cost enterprise money.*
+
+⭐ **Star this repo if it saved you money!** ⭐
+
+</div>
+
